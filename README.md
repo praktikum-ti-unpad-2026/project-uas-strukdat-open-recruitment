@@ -205,7 +205,7 @@ Proyek ini dikerjakan oleh **2 orang anggota yaitu Rafi Abdul Hikam dan Raffa Pa
 
 ### Pembagian Tugas
 
-| Komponen | Anggota 1 (Backend & Engine) | Anggota 2 (Gameplay & UI) |
+| Komponen | Rafi (Backend & Engine) | Raffa (Gameplay & UI) |
 |---|---|---|
 | Graph (peta labirin) |  Implementasi struktur & algoritma BFS/DFS | Desain layout ruangan & koneksi jalur |
 | Stack (backtracking) |  Implementasi push/pop & undo sistem | Integrasi dengan input pemain |
@@ -214,7 +214,7 @@ Proyek ini dikerjakan oleh **2 orang anggota yaitu Rafi Abdul Hikam dan Raffa Pa
 | Binary Tree (upgrade/keputusan) |  Implementasi tree & traversal | Desain konten skill & percabangan cerita |
 | Main loop & game state |  Mengelola alur permainan utama | Mengelola input/output & tampilan layar |
 | Testing & debugging | Bersama | Bersama |
-| Dokumentasi & README | Bersama | Rafi |
+| Dokumentasi & README | Bersama | Bersama |
 
 ### Alur Koordinasi
 

@@ -28,8 +28,11 @@ Permasalahan yang diangkat:
 | Manfaat | Deskripsi |
 
 |    Edukatif   | Pemain memahami cara kerja struktur data melalui gameplay langsung |
+
 |    Kognitif   | Melatih kemampuan berpikir logis dan strategi melalui navigasi labirin |
+
 |    Teknis     | Demonstrasi nyata penerapan struktur data dalam proyek perangkat lunak |
+
 |    Hiburan    | Pengalaman bermain yang menarik dengan sistem enemy, trap, dan inventory |
 
 ---

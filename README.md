@@ -102,18 +102,18 @@ Dungeon Escape
 ╔══════════════════╦═══════════════════════════════════╗
 ║  MAP OVERVIEW    ║  CURRENT ROOM: Chamber of Shadows ║
 ║                  ╠═══════════════════════════════════╣
-║  [?]─[?]─[ ]    ║                                   ║
-║   │       │     ║   You stand in a dimly lit room.   ║
-║  [★]─[!]─[X]    ║   The air smells of damp stone.   ║
+║  [?]─[?]─[ ]     ║                                   ║
+║   │       │      ║   You stand in a dimly lit room.  ║
+║  [★]─[!]─[X]     ║   The air smells of damp stone.  ║
 ║   │              ║   You hear footsteps nearby...    ║
-║  [E]─[?]─[?]    ║                                   ║
+║  [E]─[?]─[?]     ║                                   ║
 ║                  ╠═══════════════════════════════════╣
-║  ★ = You here   ║  EXITS:  [N] North  [E] East      ║
-║  E = Exit       ║          [S] Blocked               ║
-║  ! = Danger     ╠═══════════════════════════════════╣
-║  ? = Unknown    ║  > _                               ║
+║  ★ = You here    ║  EXITS:  [N] North  [E] East      ║
+║  E = Exit        ║          [S] Blocked              ║
+║  ! = Danger      ╠═══════════════════════════════════╣
+║  ? = Unknown     ║  > _                              ║
 ╠══════════════════╩═══════════════════════════════════╣
-║ HP: ████████░░  20/25  │  STEPS: 14  │  SCORE: 320  ║
+║ HP: ████████░░  20/25  │  STEPS: 14  │  SCORE: 320   ║
 ╚══════════════════════════════════════════════════════╝
 ```
 

@@ -1,0 +1,1273 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <algorithm>
+#include <cstdlib>
+#include <ctime>
+
+using namespace std;
+
+const int MAX_ROOMS    = 20;
+const int MAX_FLOORS   = 3;
+const int PLAYER_MAX_HP = 30;
+
+#define RESET   "\033[0m"
+#define BOLD    "\033[1m"
+#define RED     "\033[31m"
+#define GREEN   "\033[32m"
+#define YELLOW  "\033[33m"
+#define CYAN    "\033[36m"
+#define MAGENTA "\033[35m"
+#define WHITE   "\033[37m"
+#define DIM     "\033[2m"
+
+#ifdef _WIN32
+#include <windows.h>
+void enableANSI() {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD dwMode = 0;
+    GetConsoleMode(hOut, &dwMode);
+    SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+}
+#else
+void enableANSI() {}
+#endif
+
+struct Item {
+    string name;
+    string type;   
+    int    value; 
+};
+
+struct InventoryNode {
+    Item          item;
+    InventoryNode* next;
+    InventoryNode(Item i) : item(i), next(nullptr) {}
+};
+
+class Inventory {
+public:
+    InventoryNode* head;
+    int            size;
+
+    Inventory() : head(nullptr), size(0) {}
+    ~Inventory() {
+        InventoryNode* cur = head;
+        while (cur) { InventoryNode* tmp = cur->next; delete cur; cur = tmp; }
+    }
+
+    void addItem(Item i) {
+        InventoryNode* node = new InventoryNode(i);
+        if (!head) { head = node; }
+        else {
+            InventoryNode* cur = head;
+            while (cur->next) cur = cur->next;
+            cur->next = node;
+        }
+        size++;
+    }
+
+    bool removeItem(const string& name) {
+        if (!head) return false;
+        if (head->item.name == name) {
+            InventoryNode* tmp = head; head = head->next; delete tmp; size--; return true;
+        }
+        InventoryNode* cur = head;
+        while (cur->next && cur->next->item.name != name) cur = cur->next;
+        if (!cur->next) return false;
+        InventoryNode* tmp = cur->next; cur->next = tmp->next; delete tmp; size--; return true;
+    }
+
+    Item* findItem(const string& name) {
+        InventoryNode* cur = head;
+        while (cur) { if (cur->item.name == name) return &cur->item; cur = cur->next; }
+        return nullptr;
+    }
+
+    void display() const {
+        if (!head) { cout << DIM << "  (kosong)" << RESET << "\n"; return; }
+        cout << YELLOW << "  HEAD" << RESET;
+        InventoryNode* cur = head;
+        while (cur) {
+            cout << YELLOW << " -> " << RESET;
+            cout << "[" << CYAN << cur->item.name << RESET;
+            if (cur->item.type == "heal")   cout << " +" << cur->item.value << "HP";
+            if (cur->item.type == "weapon") cout << " ATK+" << cur->item.value;
+            cout << "]";
+            cur = cur->next;
+        }
+        cout << YELLOW << " -> NULL" << RESET << "\n";
+        cout << DIM << "  Total item: " << size << RESET << "\n";
+    }
+
+    bool isEmpty() const { return head == nullptr; }
+};
+
+struct StackNode {
+    int        roomId;
+    int        floor;
+    StackNode* next;
+    StackNode(int r, int f) : roomId(r), floor(f), next(nullptr) {}
+};
+
+class MoveStack {
+public:
+    StackNode* top;
+    int        size;
+
+    MoveStack() : top(nullptr), size(0) {}
+    ~MoveStack() {
+        StackNode* cur = top;
+        while (cur) { StackNode* tmp = cur->next; delete cur; cur = tmp; }
+    }
+
+    void push(int roomId, int floor) {
+        StackNode* node = new StackNode(roomId, floor);
+        node->next = top; top = node; size++;
+    }
+
+    bool pop(int& roomId, int& floor) {
+        if (!top) return false;
+        roomId = top->roomId; floor = top->floor;
+        StackNode* tmp = top; top = top->next; delete tmp; size--; return true;
+    }
+
+    bool peek(int& roomId, int& floor) const {
+        if (!top) return false;
+        roomId = top->roomId; floor = top->floor; return true;
+    }
+
+    bool isEmpty() const { return top == nullptr; }
+
+    void display() const {
+        if (!top) { cout << DIM << "  (riwayat kosong)" << RESET << "\n"; return; }
+        cout << MAGENTA << "  TOP" << RESET;
+        StackNode* cur = top;
+        int count = 0;
+        while (cur && count < 5) {
+            cout << MAGENTA << " -> " << RESET << "[Lantai " << cur->floor << " R" << cur->roomId << "]";
+            cur = cur->next; count++;
+        }
+        if (cur) cout << " ...";
+        cout << MAGENTA << " -> NULL" << RESET << "\n";
+    }
+};
+
+struct Enemy {
+    string name;
+    int    hp;
+    int    maxHp;
+    int    attack;
+    int    defense;
+    int    expReward;
+    char   symbol;
+};
+
+struct QueueNode {
+    Enemy      enemy;
+    QueueNode* next;
+    QueueNode(Enemy e) : enemy(e), next(nullptr) {}
+};
+
+class EnemyQueue {
+public:
+    QueueNode* front;
+    QueueNode* rear;
+    int        size;
+
+    EnemyQueue() : front(nullptr), rear(nullptr), size(0) {}
+    ~EnemyQueue() {
+        QueueNode* cur = front;
+        while (cur) { QueueNode* tmp = cur->next; delete cur; cur = tmp; }
+    }
+
+    void enqueue(Enemy e) {
+        QueueNode* node = new QueueNode(e);
+        if (!rear) { front = rear = node; }
+        else { rear->next = node; rear = node; }
+        size++;
+    }
+
+    bool dequeue(Enemy& e) {
+        if (!front) return false;
+        e = front->enemy;
+        QueueNode* tmp = front; front = front->next;
+        if (!front) rear = nullptr;
+        delete tmp; size--; return true;
+    }
+
+    Enemy* peekFront() {
+        if (!front) return nullptr;
+        return &front->enemy;
+    }
+
+    bool isEmpty() const { return front == nullptr; }
+
+    void display() const {
+        if (!front) { cout << DIM << "  (tidak ada musuh)" << RESET << "\n"; return; }
+        cout << RED << "  FRONT" << RESET;
+        QueueNode* cur = front;
+        while (cur) {
+            cout << RED << " -> " << RESET;
+            cout << "[" << cur->enemy.symbol << " " << cur->enemy.name
+                 << " HP:" << cur->enemy.hp << "]";
+            cur = cur->next;
+        }
+        cout << RED << " -> NULL" << RESET << "\n";
+    }
+};
+
+struct Skill {
+    string name;
+    string description;
+    int    attackBonus;
+    int    defenseBonus;
+    int    hpBonus;
+    int    cost;      
+    bool   unlocked;
+};
+
+struct SkillNode {
+    Skill      skill;
+    SkillNode* left;
+    SkillNode* right;
+    SkillNode(Skill s) : skill(s), left(nullptr), right(nullptr) {}
+};
+
+class SkillTree {
+public:
+    SkillNode* root;
+
+    SkillTree() : root(nullptr) { buildTree(); }
+    ~SkillTree() { destroyTree(root); }
+
+    void destroyTree(SkillNode* node) {
+        if (!node) return;
+        destroyTree(node->left);
+        destroyTree(node->right);
+        delete node;
+    }
+
+    void buildTree() {
+        Skill combatArts = {"Seni Bertarung", "Akar semua skill tempur", 0, 0, 0, 0, true};
+        root = new SkillNode(combatArts);
+
+        Skill sword   = {"Pedang Tajam",   "ATK +3",         3, 0, 0, 1, false};
+        Skill shield  = {"Tameng Kuat",    "DEF +3",         0, 3, 0, 1, false};
+        root->left  = new SkillNode(sword);
+        root->right = new SkillNode(shield);
+
+        Skill slash  = {"Serangan Kilat",  "ATK +5",         5, 0, 0, 2, false};
+        Skill crit   = {"Serangan Kritis", "ATK +4, DEF +1", 4, 1, 0, 2, false};
+        root->left->left  = new SkillNode(slash);
+        root->left->right = new SkillNode(crit);
+
+        Skill ironDef = {"Pertahanan Baja","DEF +5",          0, 5, 0, 2, false};
+        Skill vitality= {"Vitalitas",      "MaxHP +10",       0, 0, 10,2, false};
+        root->right->left  = new SkillNode(ironDef);
+        root->right->right = new SkillNode(vitality);
+    }
+
+    void display(SkillNode* node, int depth, const string& prefix) const {
+        if (!node) return;
+        string indent = "";
+        for (int i = 0; i < depth; i++) indent += "    ";
+        if (node->skill.unlocked)
+            cout << GREEN << indent << prefix << "[✓ " << node->skill.name << "]" << RESET;
+        else
+            cout << DIM   << indent << prefix << "[ " << node->skill.name << " | "
+                 << node->skill.description << " | Cost:" << node->skill.cost << " SP]" << RESET;
+        cout << "\n";
+        if (node->left || node->right) {
+            display(node->left,  depth+1, "L: ");
+            display(node->right, depth+1, "R: ");
+        }
+    }
+
+    void displayTree() const {
+        cout << BOLD << YELLOW << "  SKILL TREE (Binary Tree)\n" << RESET;
+        display(root, 0, "");
+    }
+
+    SkillNode* findSkill(SkillNode* node, const string& name) {
+        if (!node) return nullptr;
+        if (node->skill.name == name) return node;
+        SkillNode* found = findSkill(node->left, name);
+        if (found) return found;
+        return findSkill(node->right, name);
+    }
+
+    bool unlockSkill(const string& name, int& sp, int& atkB, int& defB, int& hpB) {
+        SkillNode* node = findSkill(root, name);
+        if (!node) return false;
+        if (node->skill.unlocked) { cout << YELLOW << "Skill sudah di-unlock!\n" << RESET; return false; }
+        if (sp < node->skill.cost) {
+            cout << RED << "Skill point tidak cukup! Dibutuhkan: " << node->skill.cost << "\n" << RESET;
+            return false;
+        }
+        node->skill.unlocked = true;
+        sp   -= node->skill.cost;
+        atkB += node->skill.attackBonus;
+        defB += node->skill.defenseBonus;
+        hpB  += node->skill.hpBonus;
+        return true;
+    }
+};
+
+struct Room {
+    int    id;
+    string name;
+    string description;
+    bool   hasEnemy;
+    bool   hasTrap;
+    bool   hasItem;
+    bool   visited;
+    bool   isExit;
+    Item   roomItem;
+    int    trapDamage;
+    char   symbol;
+};
+
+struct Edge {
+    int    toRoom;
+    string direction; 
+    bool   locked;
+};
+
+struct AdjNode {
+    Edge     edge;
+    AdjNode* next;
+    AdjNode(Edge e) : edge(e), next(nullptr) {}
+};
+
+class DungeonGraph {
+public:
+    Room     rooms[MAX_ROOMS];
+    AdjNode* adjList[MAX_ROOMS];
+    int      roomCount;
+    int      floorNumber;
+
+    DungeonGraph() : roomCount(0), floorNumber(1) {
+        for (int i = 0; i < MAX_ROOMS; i++) adjList[i] = nullptr;
+    }
+    ~DungeonGraph() { clearAdjList(); }
+
+    void clearAdjList() {
+        for (int i = 0; i < MAX_ROOMS; i++) {
+            AdjNode* cur = adjList[i];
+            while (cur) { AdjNode* tmp = cur->next; delete cur; cur = tmp; }
+            adjList[i] = nullptr;
+        }
+        roomCount = 0;
+    }
+
+    void addRoom(Room r) {
+        rooms[roomCount++] = r;
+    }
+
+    void addEdge(int from, int to, const string& dir, bool locked = false) {
+        Edge e; e.toRoom = to; e.direction = dir; e.locked = locked;
+        AdjNode* node = new AdjNode(e);
+        node->next = adjList[from]; adjList[from] = node;
+    }
+
+    vector<Edge> getExits(int roomId) const {
+        vector<Edge> exits;
+        AdjNode* cur = adjList[roomId];
+        while (cur) { exits.push_back(cur->edge); cur = cur->next; }
+        return exits;
+    }
+
+    bool hasEdge(int from, const string& dir, int& toRoom, bool& locked) const {
+        AdjNode* cur = adjList[from];
+        while (cur) {
+            if (cur->edge.direction == dir) {
+                toRoom = cur->edge.toRoom;
+                locked = cur->edge.locked;
+                return true;
+            }
+            cur = cur->next;
+        }
+        return false;
+    }
+
+    void displayMap(int currentRoom) const {
+        cout << BOLD << "  PETA LABIRIN (Lantai " << floorNumber << ")\n" << RESET;
+        cout << DIM << "  " << string(30, '-') << RESET << "\n";
+
+        int cols = 3;
+        for (int i = 0; i < roomCount; i++) {
+            if (i % cols == 0) cout << "  ";
+            const Room& r = rooms[i];
+            char sym;
+            string color;
+            if (i == currentRoom) {
+                sym = '@'; color = BOLD + string(YELLOW);
+            } else if (r.isExit) {
+                sym = 'E'; color = GREEN;
+            } else if (!r.visited) {
+                sym = '?'; color = DIM;
+            } else if (r.hasEnemy) {
+                sym = '!'; color = RED;
+            } else {
+                sym = '.'; color = CYAN;
+            }
+            cout << color << "[" << sym << "]" << RESET;
+            if (i % cols == cols-1) cout << "\n";
+            else cout << "-";
+        }
+        if (roomCount % cols != 0) cout << "\n";
+
+        cout << DIM << "  ";
+        cout << YELLOW << "[@]" << RESET << DIM << "Kamu  ";
+        cout << GREEN  << "[E]" << RESET << DIM << "Exit  ";
+        cout << RED    << "[!]" << RESET << DIM << "Bahaya  ";
+        cout << DIM    << "[?]" << RESET << DIM << "Belum dijelajahi\n";
+        cout << DIM << "  " << string(30, '-') << RESET << "\n";
+    }
+
+    void buildFloor(int floor);
+};
+
+struct Player {
+    string    name;
+    int       hp;
+    int       maxHp;
+    int       attack;
+    int       defense;
+    int       level;
+    int       exp;
+    int       expToLevel;
+    int       skillPoints;
+    int       score;
+    int       steps;
+    int       currentRoom;
+    int       currentFloor;
+    bool      hasKey;
+    Inventory inventory;
+    MoveStack moveHistory;
+
+    Player() : hp(PLAYER_MAX_HP), maxHp(PLAYER_MAX_HP),
+               attack(5), defense(2), level(1), exp(0),
+               expToLevel(50), skillPoints(0), score(0),
+               steps(0), currentRoom(0), currentFloor(1), hasKey(false) {}
+};
+
+inline void clearScreen() {
+#ifdef _WIN32
+    system("cls");
+#else
+    system("clear");
+#endif
+}
+
+inline void pressEnter() {
+    cout << DIM << "\n  [ Tekan ENTER untuk melanjutkan... ]" << RESET;
+    cin.ignore(); cin.get();
+}
+
+inline void printLine(char c = '=', int len = 54) {
+    cout << DIM << "  " << string(len, c) << RESET << "\n";
+}
+
+inline void printBox(const string& text, const string& color = WHITE) {
+    int pad = 50 - (int)text.size();
+    if (pad < 0) pad = 0;
+    cout << DIM << "  ╔" << string(52,'-') << "╗\n" << RESET;
+    cout << DIM << "  ║ " << RESET << color << BOLD << text
+         << RESET << string(pad,' ') << DIM << " ║\n" << RESET;
+    cout << DIM << "  ╚" << string(52,'-') << "╝\n" << RESET;
+}
+
+void showMainMenu() {
+    clearScreen();
+    cout << "\n";
+    cout << BOLD << RED;
+    cout << "  ██████╗ ██╗   ██╗███╗  ██╗ ██████╗ ███████╗ ██████╗ ███╗  ██╗\n";
+    cout << "  ██╔══██╗██║   ██║████╗ ██║██╔════╝ ██╔════╝██╔═══██╗████╗ ██║\n";
+    cout << "  ██║  ██║██║   ██║██╔██╗██║██║ ███╗ █████╗  ██║   ██║██╔██╗██║\n";
+    cout << "  ██║  ██║██║   ██║██║╚████║██║  ██║ ██╔══╝  ██║   ██║██║╚████║\n";
+    cout << "  ██████╔╝╚██████╔╝██║ ╚███║╚██████╔╝███████╗╚██████╔╝██║ ╚███║\n";
+    cout << "  ╚═════╝  ╚═════╝ ╚═╝  ╚══╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚══╝\n";
+    cout << RESET;
+    cout << YELLOW << BOLD;
+    cout << "\n                    ══════ ESCAPE ══════\n\n" << RESET;
+    printLine();
+    cout << "\n";
+    cout << CYAN << "      [ 1 ]" << RESET << "  Mulai Game Baru\n";
+    cout << CYAN << "      [ 2 ]" << RESET << "  Cara Bermain\n";
+    cout << CYAN << "      [ 3 ]" << RESET << "  Tentang Struktur Data\n";
+    cout << CYAN << "      [ 4 ]" << RESET << "  Keluar\n";
+    cout << "\n";
+    printLine();
+    cout << DIM << "\n      \"Find the exit... if you dare.\"\n\n" << RESET;
+    cout << BOLD << "  Pilihan: " << RESET;
+}
+
+void showHowToPlay() {
+    clearScreen();
+    printBox("CARA BERMAIN", YELLOW);
+    cout << "\n";
+    cout << CYAN << "  NAVIGASI:\n" << RESET;
+    cout << "    W / A / S / D  — berpindah ruangan (Atas / Kiri / Bawah / Kanan)\n";
+    cout << "    undo           — kembali ke ruangan sebelumnya\n\n";
+    cout << CYAN << "  AKSI:\n" << RESET;
+    cout << "    ambil      — ambil item di ruangan\n";
+    cout << "    inventory  — lihat & gunakan item\n";
+    cout << "    skill      — buka skill tree\n";
+    cout << "    status     — lihat statistik karakter\n";
+    cout << "    peta       — tampilkan peta labirin\n";
+    cout << "    bantuan    — tampilkan daftar perintah\n\n";
+    cout << CYAN << "  COMBAT:\n" << RESET;
+    cout << "    Saat bertemu musuh, kamu bisa:\n";
+    cout << "    [A] Serang  [T] Tangkis  [L] Lari  [I] Gunakan item\n\n";
+    cout << CYAN << "  TUJUAN:\n" << RESET;
+    cout << "    Temukan pintu keluar [E] di setiap lantai.\n";
+    cout << "    Selesaikan 3 lantai untuk memenangkan game!\n\n";
+    pressEnter();
+}
+
+void showAboutDS() {
+    clearScreen();
+    printBox("STRUKTUR DATA DI BALIK GAME INI", CYAN);
+    cout << "\n";
+    cout << GREEN  << "  [Graph]      " << RESET << "Peta labirin — ruangan = node, jalur = edge\n";
+    cout << MAGENTA<< "  [Stack]      " << RESET << "Riwayat gerak — LIFO, digunakan untuk UNDO\n";
+    cout << RED    << "  [Queue]      " << RESET << "Antrian musuh — FIFO, musuh muncul berurutan\n";
+    cout << YELLOW << "  [Linked List]" << RESET << "Inventory item — node dinamis, O(1) insert\n";
+    cout << CYAN   << "  [Binary Tree]" << RESET << "Skill upgrade — kiri/kanan = cabang kemampuan\n";
+    cout << "\n";
+    pressEnter();
+}
+
+void showHUD(const Player& p, const DungeonGraph& dg) {
+    string hpBar = "";
+    int filled = (p.hp * 10) / p.maxHp;
+    for (int i = 0; i < 10; i++) hpBar += (i < filled ? "█" : "░");
+
+    cout << DIM << "  ╔" << string(52,'-') << "╗\n" << RESET;
+    cout << DIM << "  ║ " << RESET;
+    cout << RED << "HP " << hpBar << " " << p.hp << "/" << p.maxHp << RESET;
+    cout << DIM << " │ " << RESET;
+    cout << YELLOW << "Skor: " << p.score << RESET;
+    cout << DIM << " │ " << RESET;
+    cout << CYAN << "Lantai: " << p.currentFloor << "/3" << RESET;
+    cout << DIM << " │ " << RESET;
+    cout << MAGENTA << "Langkah: " << p.steps << RESET;
+    cout << DIM << " ║\n" << RESET;
+    cout << DIM << "  ║ " << RESET;
+    cout << GREEN << "LVL " << p.level << RESET;
+    cout << DIM << " │ " << RESET;
+    cout << "EXP: " << p.exp << "/" << p.expToLevel;
+    cout << DIM << " │ " << RESET;
+    cout << YELLOW << "SP: " << p.skillPoints << RESET;
+    cout << DIM << " │ " << RESET;
+    cout << (p.hasKey ? GREEN + string("🗝 Punya Kunci") : DIM + string("  Tidak ada kunci")) << RESET;
+    cout << DIM << " ║\n" << RESET;
+    cout << DIM << "  ╚" << string(52,'-') << "╝\n" << RESET;
+}
+
+void showRoom(const Room& r, const vector<Edge>& exits) {
+    cout << "\n";
+    cout << BOLD << YELLOW << "  ► " << r.name << RESET << "\n";
+    printLine('-', 50);
+    cout << "  " << r.description << "\n";
+
+    if (r.hasTrap && !r.visited)
+        cout << RED << "\n  ⚠  Ada sesuatu yang mencurigakan di ruangan ini!\n" << RESET;
+    if (r.hasItem && !r.visited)
+        cout << GREEN << "\n  ✦  Kamu melihat sesuatu berkilau di sudut ruangan.\n" << RESET;
+    if (r.hasEnemy)
+        cout << RED << "\n  ☠  Kamu mendengar geraman dari kegelapan!\n" << RESET;
+    if (r.isExit)
+        cout << GREEN << BOLD << "\n  ✦  PINTU KELUAR ada di sini!\n" << RESET;
+
+    cout << "\n  " << DIM << "Jalur keluar: " << RESET;
+    if (exits.empty()) { cout << RED << "Tidak ada jalan keluar!" << RESET; }
+    else {
+        for (const Edge& e : exits) {
+            if (e.locked) cout << YELLOW << "[" << e.direction << " 🔒] " << RESET;
+            else          cout << CYAN   << "[" << e.direction << "] "    << RESET;
+        }
+    }
+    cout << "\n";
+    printLine('-', 50);
+}
+
+void showCombatScreen(const Player& p, const Enemy& e, const EnemyQueue& eq) {
+    cout << "\n";
+    printBox("⚔  PERTARUNGAN!", RED);
+    cout << "\n";
+
+    cout << RED << "  Antrian Musuh (Queue): " << RESET;
+    eq.display();
+    cout << "\n";
+
+    cout << RED << BOLD << "  Melawan: " << e.symbol << " " << e.name << RESET << "\n";
+    string eHpBar = "";
+    int ef = (e.hp * 10) / max(e.maxHp, 1);
+    for (int i = 0; i < 10; i++) eHpBar += (i < ef ? "█" : "░");
+    cout << RED   << "  HP Musuh: [" << eHpBar << "] " << e.hp << "/" << e.maxHp << "\n" << RESET;
+
+    string pHpBar = "";
+    int pf = (p.hp * 10) / p.maxHp;
+    for (int i = 0; i < 10; i++) pHpBar += (i < pf ? "█" : "░");
+    cout << GREEN << "  HP Kamu:  [" << pHpBar << "] " << p.hp << "/" << p.maxHp << "\n" << RESET;
+
+    cout << "\n  " << CYAN   << "[A] Serang  " << RESET;
+    cout <<          YELLOW  << "[T] Tangkis  " << RESET;
+    cout <<          MAGENTA << "[I] Gunakan Item  " << RESET;
+    cout <<          DIM     << "[L] Lari\n" << RESET;
+    cout << "\n  Aksi: ";
+}
+
+void showGameOver(const Player& p) {
+    clearScreen();
+    cout << "\n\n";
+    cout << RED << BOLD;
+    cout << "  ██████╗  █████╗ ███╗   ███╗███████╗     ██████╗ ██╗   ██╗███████╗██████╗ \n";
+    cout << "  ██╔════╝ ██╔══██╗████╗ ████║██╔════╝    ██╔═══██╗██║   ██║██╔════╝██╔══██╗\n";
+    cout << "  ██║  ███╗███████║██╔████╔██║█████╗      ██║   ██║██║   ██║█████╗  ██████╔╝\n";
+    cout << "  ██║   ██║██╔══██║██║╚██╔╝██║██╔══╝      ██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗\n";
+    cout << "  ╚██████╔╝██║  ██║██║ ╚═╝ ██║███████╗    ╚██████╔╝ ╚████╔╝ ███████╗██║  ██║\n";
+    cout << "   ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝     ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝\n";
+    cout << RESET << "\n";
+    printLine();
+    cout << "\n  " << DIM << "Nama       : " << RESET << p.name << "\n";
+    cout <<   "  " << DIM << "Lantai     : " << RESET << p.currentFloor << " / 3\n";
+    cout <<   "  " << DIM << "Langkah    : " << RESET << p.steps << "\n";
+    cout <<   "  " << DIM << "Skor Akhir : " << RESET << YELLOW << p.score << RESET << "\n";
+    cout << "\n";
+    printLine();
+    cout << "\n  " << CYAN << "[ R ]" << RESET << " Main Lagi   " << CYAN << "[ Q ]" << RESET << " Keluar\n\n";
+    cout << "  Pilihan: ";
+}
+
+void showVictory(const Player& p) {
+    clearScreen();
+    cout << "\n\n";
+    cout << GREEN << BOLD;
+    cout << "  ██╗   ██╗ ██████╗ ██╗   ██╗    ███████╗███████╗ ██████╗ █████╗ ██████╗ ███████╗██╗\n";
+    cout << "  ╚██╗ ██╔╝██╔═══██╗██║   ██║    ██╔════╝██╔════╝██╔════╝██╔══██╗██╔══██╗██╔════╝██║\n";
+    cout << "   ╚████╔╝ ██║   ██║██║   ██║    █████╗  ███████╗██║     ███████║██████╔╝█████╗  ██║\n";
+    cout << "    ╚██╔╝  ██║   ██║██║   ██║    ██╔══╝  ╚════██║██║     ██╔══██║██╔═══╝ ██╔══╝  ╚═╝\n";
+    cout << "     ██║   ╚██████╔╝╚██████╔╝    ███████╗███████║╚██████╗██║  ██║██║     ███████╗██╗\n";
+    cout << "     ╚═╝    ╚═════╝  ╚═════╝     ╚══════╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝\n";
+    cout << RESET << "\n";
+    printLine();
+    cout << "\n  " << YELLOW << "         ════ STATISTIK AKHIR ════\n\n" << RESET;
+    cout << "  " << DIM << "Nama           : " << RESET << p.name << "\n";
+    cout << "  " << DIM << "Level          : " << RESET << p.level << "\n";
+    cout << "  " << DIM << "Total Langkah  : " << RESET << p.steps << "\n";
+    cout << "  " << DIM << "Skor Akhir     : " << RESET << YELLOW << BOLD << p.score << " pts" << RESET << "\n";
+    cout << "\n";
+    printLine();
+    cout << DIM << "\n  \"Kamu berhasil melarikan diri dari penjara bawah tanah!\"\n\n" << RESET;
+    cout << "  " << CYAN << "[ R ]" << RESET << " Main Lagi   " << CYAN << "[ Q ]" << RESET << " Keluar\n\n";
+    cout << "  Pilihan: ";
+}
+
+void showLevelUp(const Player& p) {
+    cout << "\n";
+    printBox("  ★ LEVEL UP! ★", YELLOW);
+    cout << YELLOW << "\n  Level " << p.level-1 << " → " << p.level << RESET << "\n";
+    cout << "  ATK +" << 2 << "  DEF +" << 1 << "  MaxHP +5\n";
+    cout << GREEN << "  +1 Skill Point diperoleh!\n" << RESET;
+    pressEnter();
+}
+
+void showStatus(const Player& p) {
+    clearScreen();
+    printBox("STATUS KARAKTER", CYAN);
+    cout << "\n";
+    cout << "  Nama     : " << BOLD << p.name << RESET << "\n";
+    cout << "  Level    : " << YELLOW << p.level << RESET << "\n";
+    cout << "  HP       : " << RED << p.hp << "/" << p.maxHp << RESET << "\n";
+    cout << "  ATK      : " << p.attack << "\n";
+    cout << "  DEF      : " << p.defense << "\n";
+    cout << "  EXP      : " << p.exp << " / " << p.expToLevel << "\n";
+    cout << "  Skill Pts: " << YELLOW << p.skillPoints << RESET << "\n";
+    cout << "  Skor     : " << YELLOW << p.score << RESET << "\n";
+    cout << "  Langkah  : " << p.steps << "\n";
+    cout << "  Lantai   : " << p.currentFloor << " / 3\n";
+    cout << "  Kunci    : " << (p.hasKey ? GREEN + string("Ya") : DIM + string("Tidak")) << RESET << "\n\n";
+
+    cout << YELLOW << "  Inventory (Linked List):\n" << RESET;
+    p.inventory.display();
+    cout << "\n";
+
+    cout << MAGENTA << "  Riwayat Langkah (Stack - 5 teratas):\n" << RESET;
+    p.moveHistory.display();
+    cout << "\n";
+    pressEnter();
+}
+
+void showHelp() {
+    clearScreen();
+    printBox("DAFTAR PERINTAH", CYAN);
+    cout << "\n";
+    cout << CYAN << "  GERAK:\n" << RESET;
+    cout << "    w (atas) / a (kiri) / s (bawah) / d (kanan)\n\n";
+    cout << CYAN << "  AKSI:\n" << RESET;
+    cout << "    ambil       - ambil item di ruangan ini\n";
+    cout << "    inventory   - kelola inventory\n";
+    cout << "    skill       - buka/upgrade skill\n";
+    cout << "    status      - lihat statistik karakter\n";
+    cout << "    peta        - tampilkan peta labirin\n";
+    cout << "    undo        - kembali ke ruangan sebelumnya\n";
+    cout << "    bantuan     - tampilkan halaman ini\n";
+    cout << "    keluar      - kembali ke menu utama\n\n";
+    pressEnter();
+}
+
+
+void DungeonGraph::buildFloor(int floor) {
+    clearAdjList();
+    floorNumber = floor;
+
+    auto makeItem = [](string n, string t, int v) -> Item {
+        Item it; it.name=n; it.type=t; it.value=v; return it;
+    };
+    auto makeRoom = [](int id, string name, string desc, bool enemy, bool trap,
+                       bool hasIt, bool visited, bool exit, Item item, int trapDmg, char sym) -> Room {
+        Room r; r.id=id; r.name=name; r.description=desc;
+        r.hasEnemy=enemy; r.hasTrap=trap; r.hasItem=hasIt;
+        r.visited=visited; r.isExit=exit; r.roomItem=item;
+        r.trapDamage=trapDmg; r.symbol=sym; return r;
+    };
+
+    Item noItem = makeItem("",     "",       0);
+    Item potion = makeItem("Ramuan HP",    "heal",   15);
+    Item key    = makeItem("Kunci Besi",   "key",    0);
+    Item torch  = makeItem("Obor",         "torch",  0);
+    Item sword  = makeItem("Pedang Tua",   "weapon", 3);
+    Item bigPot = makeItem("Ramuan Besar", "heal",   25);
+
+    if (floor == 1) {
+        addRoom(makeRoom(0,"Sel Tahanan",   "Titik awal perjalananmu. Dinding lembap, bau apak.",  false,false,true, true, false, torch,  0, 'S'));
+        addRoom(makeRoom(1,"Koridor Utara", "Lorong panjang. Terdengar suara mencicit di sudut.",  true, false,false,false,false, noItem, 0, 'K'));
+        addRoom(makeRoom(2,"Ruang Penjaga", "Bekas pos penjaga. Ada peti terkunci di sudut.",      false,false,true, false,false, potion, 0, 'P'));
+        addRoom(makeRoom(3,"Gudang Senjata","Rak senjata berkarat. Bau darah masih menyengat.",    true, false,true, false,false, sword,  0, 'G'));
+        addRoom(makeRoom(4,"Ruang Jebakan", "Lantai bertanda aneh. Sesuatu terasa salah...",       false,true, false,false,false, noItem, 8, 'J'));
+        addRoom(makeRoom(5,"Tangga Keluar", "Anak tangga menuju lantai berikutnya. Hampir!",       false,false,true, false,true,  key,    0, 'T'));
+
+        addEdge(0,1,"atas");    addEdge(1,0,"bawah");
+        addEdge(0,3,"kanan");   addEdge(3,0,"kiri");
+        addEdge(1,2,"kanan");   addEdge(2,1,"kiri");
+        addEdge(1,4,"atas");    addEdge(4,1,"bawah");
+        addEdge(2,5,"atas",true); addEdge(5,2,"bawah");
+        addEdge(3,4,"atas");    addEdge(4,3,"kiri");
+        addEdge(4,5,"kanan");   addEdge(5,4,"kiri");
+
+    } else if (floor == 2) {
+        addRoom(makeRoom(0,"Tangga Masuk",   "Kamu tiba di lantai 2. Lebih gelap dari sebelumnya.", false,false,false,true, false, noItem, 0, 'T'));
+        addRoom(makeRoom(1,"Ruang Tulang",   "Tulang berserakan di lantai. Ini bukan pertanda baik.",true,false,false,false,false, noItem, 0, 'R'));
+        addRoom(makeRoom(2,"Perpustakaan",   "Rak buku tua. Sebuah peta tergeletak di meja.",        false,false,true, false,false, potion, 0, 'B'));
+        addRoom(makeRoom(3,"Kamar Penyiksaan","Peralatan menyeramkan. Jangan terlalu lama di sini.", true, true, false,false,false, noItem,10, 'X'));
+        addRoom(makeRoom(4,"Ruang Rahasia",  "Pintunya tersembunyi. Ada ramuan besar di dalam!",     false,false,true, false,false, bigPot, 0, 'H'));
+        addRoom(makeRoom(5,"Ruang Altar",    "Altar batu kuno bersinar redup. Ada kunci di atasnya.",false,false,true, false,false, key,    0, 'A'));
+        addRoom(makeRoom(6,"Tangga Atas",    "Tangga menuju puncak penjara bawah tanah.",            false,false,false,false,true,  noItem, 0, 'E'));
+
+        addEdge(0,1,"atas");    addEdge(1,0,"bawah");
+        addEdge(0,2,"kanan");   addEdge(2,0,"kiri");
+        addEdge(1,3,"kanan");   addEdge(3,1,"kiri");
+        addEdge(2,4,"atas");    addEdge(4,2,"bawah");
+        addEdge(2,5,"kanan");   addEdge(5,2,"kiri");
+        addEdge(3,6,"atas",true); addEdge(6,3,"bawah");
+        addEdge(5,6,"atas");    addEdge(6,5,"bawah");
+        addEdge(4,5,"kanan");   addEdge(5,4,"kiri");
+
+    } else { 
+        addRoom(makeRoom(0,"Tangga Masuk",   "Lantai terakhir. Hawa panas menyergap tubuhmu.",      false,false,false,true, false, noItem, 0, 'T'));
+        addRoom(makeRoom(1,"Ruang Api",      "Dinding membara. Trap api di tengah ruangan!",         false,true, false,false,false, noItem,12, 'F'));
+        addRoom(makeRoom(2,"Ruang Prajurit", "Dua prajurit berpatroli. Hati-hati!",                  true, false,true, false,false, sword,  0, 'P'));
+        addRoom(makeRoom(3,"Ruang Harta",    "Tumpukan emas! Dan sebuah ramuan tersimpan di sana.",  false,false,true, false,false, bigPot, 0, 'H'));
+        addRoom(makeRoom(4,"Ruang Boss",     "Makhluk besar berdiri di tengah ruangan. BOSS!",       true, false,false,false,false, noItem, 0, 'B'));
+        addRoom(makeRoom(5,"Pintu Keluar",   "BEBAS! Kamu berhasil menemukan jalan keluar!",          false,false,false,false,true,  noItem, 0, 'E'));
+
+        addEdge(0,1,"atas");    addEdge(1,0,"bawah");
+        addEdge(0,2,"kanan");   addEdge(2,0,"kiri");
+        addEdge(1,3,"kanan");   addEdge(3,1,"kiri");
+        addEdge(2,4,"atas",true); addEdge(4,2,"bawah");
+        addEdge(3,4,"atas");    addEdge(4,3,"bawah");
+        addEdge(4,5,"kanan");   addEdge(5,4,"kiri");
+    }
+}
+
+Enemy spawnEnemy(int floor, bool isBoss = false) {
+    Enemy e;
+    if (isBoss) {
+        e.name = "Raja Penjara";
+        e.symbol = 'K';
+        e.hp = e.maxHp = 60;
+        e.attack = 12; e.defense = 5; e.expReward = 100;
+        return e;
+    }
+    int r = rand() % 3;
+    if (floor == 1) {
+        string names[] = {"Goblin", "Tikus Raksasa", "Penjaga Tulang"};
+        char   syms[]  = {'G',      'T',              'P'};
+        int    hps[]   = {12, 10, 15};
+        int    atks[]  = {4,   3,  5};
+        int    defs[]  = {1,   0,  2};
+        int    exps[]  = {15, 10, 20};
+        e.name=names[r]; e.symbol=syms[r]; e.hp=e.maxHp=hps[r];
+        e.attack=atks[r]; e.defense=defs[r]; e.expReward=exps[r];
+    } else if (floor == 2) {
+        string names[] = {"Kerangka",  "Zombie",   "Prajurit Gelap"};
+        char   syms[]  = {'K',          'Z',         'D'};
+        int    hps[]   = {20, 18, 25};
+        int    atks[]  = {6,   5,  8};
+        int    defs[]  = {2,   1,  3};
+        int    exps[]  = {25, 20, 35};
+        e.name=names[r]; e.symbol=syms[r]; e.hp=e.maxHp=hps[r];
+        e.attack=atks[r]; e.defense=defs[r]; e.expReward=exps[r];
+    } else {
+        string names[] = {"Ksatria Hitam","Penyihir Jahat","Iblis Api"};
+        char   syms[]  = {'B',             'W',             'F'};
+        int    hps[]   = {35, 28, 40};
+        int    atks[]  = {10,  8, 12};
+        int    defs[]  = {4,   3,  5};
+        int    exps[]  = {40, 35, 50};
+        e.name=names[r]; e.symbol=syms[r]; e.hp=e.maxHp=hps[r];
+        e.attack=atks[r]; e.defense=defs[r]; e.expReward=exps[r];
+    }
+    return e;
+}
+
+void checkLevelUp(Player& p) {
+    while (p.exp >= p.expToLevel) {
+        p.exp      -= p.expToLevel;
+        p.level++;
+        p.expToLevel = p.level * 50;
+        p.attack   += 2;
+        p.defense  += 1;
+        p.maxHp    += 5;
+        p.hp        = min(p.hp + 5, p.maxHp);
+        p.skillPoints++;
+        showLevelUp(p);
+    }
+}
+
+bool runCombat(Player& p, EnemyQueue& eq) {
+    if (eq.isEmpty()) return true;
+
+    while (!eq.isEmpty()) {
+        Enemy* ep = eq.peekFront();
+        if (!ep) break;
+        Enemy enemy = *ep;
+
+        bool combatDone = false;
+        while (!combatDone) {
+            clearScreen();
+            showHUD(p, *(DungeonGraph*)nullptr); 
+            showCombatScreen(p, enemy, eq);
+
+            string action;
+            getline(cin, action);
+            for (char& c : action) c = tolower(c);
+
+            if (action == "a" || action == "serang") {
+                int dmg = max(1, p.attack - enemy.defense + (rand() % 3));
+                enemy.hp -= dmg;
+                cout << GREEN << "\n  Kamu menyerang " << enemy.name
+                     << " dan memberikan " << dmg << " damage!" << RESET << "\n";
+
+                if (enemy.hp <= 0) {
+                    cout << YELLOW << "\n  ★ " << enemy.name << " dikalahkan! +" << enemy.expReward << " EXP\n" << RESET;
+                    p.exp   += enemy.expReward;
+                    p.score += enemy.expReward * 10;
+                    checkLevelUp(p);
+                    Enemy dummy; eq.dequeue(dummy);
+                    combatDone = true;
+                    pressEnter();
+                } else {
+                    int eDmg = max(1, enemy.attack - p.defense + (rand() % 3));
+                    p.hp -= eDmg;
+                    cout << RED << "  " << enemy.name << " membalas dengan " << eDmg << " damage!\n" << RESET;
+                    if (eq.front) eq.front->enemy.hp = enemy.hp;
+                    pressEnter();
+                }
+
+            } else if (action == "t" || action == "tangkis") {
+                int eDmg = max(0, enemy.attack - p.defense - 2 + (rand() % 2));
+                p.hp -= eDmg;
+                cout << CYAN << "\n  Kamu menangkis! Damage dikurangi. Menerima " << eDmg << " damage.\n" << RESET;
+                pressEnter();
+
+            } else if (action == "i" || action == "gunakan item") {
+                cout << "\n";
+                p.inventory.display();
+                cout << "\n  Nama item yang ingin digunakan: ";
+                string itemName; getline(cin, itemName);
+                Item* it = p.inventory.findItem(itemName);
+                if (!it) {
+                    cout << RED << "  Item tidak ditemukan!\n" << RESET; pressEnter();
+                } else if (it->type == "heal") {
+                    int heal = it->value;
+                    p.hp = min(p.hp + heal, p.maxHp);
+                    cout << GREEN << "  +" << heal << " HP dipulihkan!\n" << RESET;
+                    p.inventory.removeItem(itemName);
+                    pressEnter();
+                } else {
+                    cout << YELLOW << "  Item ini tidak bisa digunakan dalam pertarungan.\n" << RESET;
+                    pressEnter();
+                }
+
+            } else if (action == "l" || action == "lari") {
+                int chance = rand() % 100;
+                if (chance < 40) {
+                    cout << YELLOW << "\n  Kamu berhasil kabur!\n" << RESET;
+                    pressEnter();
+                    return false; 
+                } else {
+                    int eDmg = max(1, enemy.attack - p.defense);
+                    p.hp -= eDmg;
+                    cout << RED << "\n  Gagal kabur! Musuh menyerang dan memberikan " << eDmg << " damage!\n" << RESET;
+                    pressEnter();
+                }
+            } else {
+                cout << RED << "  Perintah tidak valid! Gunakan: a/serang, t/tangkis, i/gunakan item, l/lari\n" << RESET;
+                pressEnter();
+            }
+
+            if (p.hp <= 0) return false; 
+        }
+
+        if (p.hp <= 0) return false;
+    }
+    return true; 
+}
+
+void manageInventory(Player& p) {
+    clearScreen();
+    printBox("INVENTORY (Linked List)", YELLOW);
+    cout << "\n";
+    p.inventory.display();
+    cout << "\n";
+    cout << CYAN << "  [G] Gunakan item   [B] Buang item   [K] Kembali\n" << RESET;
+    cout << "\n  Pilihan: ";
+    string cmd; getline(cin, cmd);
+    for (char& c : cmd) c = tolower(c);
+
+    if (cmd == "g" || cmd == "gunakan") {
+        cout << "  Nama item: "; string name; getline(cin, name);
+        Item* it = p.inventory.findItem(name);
+        if (!it) { cout << RED << "  Item tidak ditemukan!\n" << RESET; pressEnter(); return; }
+        if (it->type == "heal") {
+            int h = it->value;
+            p.hp = min(p.hp + h, p.maxHp);
+            cout << GREEN << "  +" << h << " HP dipulihkan! HP: " << p.hp << "/" << p.maxHp << "\n" << RESET;
+            p.inventory.removeItem(name);
+        } else if (it->type == "weapon") {
+            p.attack += it->value;
+            cout << GREEN << "  ATK +" << it->value << "! ATK sekarang: " << p.attack << "\n" << RESET;
+            p.inventory.removeItem(name);
+        } else {
+            cout << YELLOW << "  Item ini tidak bisa digunakan sekarang.\n" << RESET;
+        }
+        pressEnter();
+    } else if (cmd == "b" || cmd == "buang") {
+        cout << "  Nama item: "; string name; getline(cin, name);
+        if (p.inventory.removeItem(name))
+            cout << YELLOW << "  Item " << name << " dibuang.\n" << RESET;
+        else
+            cout << RED << "  Item tidak ditemukan!\n" << RESET;
+        pressEnter();
+    }
+}
+
+void manageSkillTree(Player& p, SkillTree& st) {
+    clearScreen();
+    printBox("SKILL TREE (Binary Tree)", CYAN);
+    cout << "\n  Skill Points: " << YELLOW << p.skillPoints << RESET << "\n\n";
+    st.displayTree();
+    cout << "\n  Nama skill yang ingin di-unlock (atau 'batal'): ";
+    string name; getline(cin, name);
+    if (name == "batal" || name == "") return;
+
+    int atkB=0, defB=0, hpB=0;
+    if (st.unlockSkill(name, p.skillPoints, atkB, defB, hpB)) {
+        p.attack  += atkB;
+        p.defense += defB;
+        p.maxHp   += hpB;
+        p.hp       = min(p.hp + hpB, p.maxHp);
+        cout << GREEN << "\n  Skill \"" << name << "\" berhasil di-unlock!\n" << RESET;
+        if (atkB) cout << "  ATK +" << atkB << "\n";
+        if (defB) cout << "  DEF +" << defB << "\n";
+        if (hpB)  cout << "  MaxHP +" << hpB << "\n";
+    }
+    pressEnter();
+}
+
+void setupFloorEnemies(DungeonGraph& dg, EnemyQueue enemyQueues[], int floor) {
+    for (int i = 0; i < dg.roomCount; i++) {
+        Enemy dummy;
+        while (!enemyQueues[i].isEmpty()) enemyQueues[i].dequeue(dummy);
+
+        if (dg.rooms[i].hasEnemy) {
+            bool isBoss = (floor == 3 && i == 4); 
+            int enemyCount = isBoss ? 1 : (floor == 1 ? 1 : (rand()%2 + 1));
+            for (int j = 0; j < enemyCount; j++) {
+                enemyQueues[i].enqueue(spawnEnemy(floor, isBoss));
+            }
+        }
+    }
+}
+
+string toLower(string s) {
+    for (char& c : s) c = tolower(c);
+    return s;
+}
+
+bool playFloor(Player& p, DungeonGraph& dg, SkillTree& st, int floor) {
+    dg.buildFloor(floor);
+    p.currentFloor = floor;
+    p.currentRoom  = 0;
+
+    EnemyQueue enemyQueues[MAX_ROOMS];
+    setupFloorEnemies(dg, enemyQueues, floor);
+
+    dg.rooms[0].visited = true;
+    bool floorDone = false;
+
+    while (!floorDone) {
+        Room& curRoom = dg.rooms[p.currentRoom];
+
+        if (curRoom.hasTrap && !curRoom.visited) {
+            clearScreen();
+            showHUD(p, dg);
+            cout << RED << BOLD << "\n  ⚠  JEBAKAN TERPICU!\n" << RESET;
+            cout << RED << "  Kamu menginjak jebakan dan kehilangan " << curRoom.trapDamage << " HP!\n" << RESET;
+            p.hp -= curRoom.trapDamage;
+            p.score = max(0, p.score - 20);
+            pressEnter();
+            if (p.hp <= 0) return false; 
+        }
+
+        if (!enemyQueues[p.currentRoom].isEmpty() && curRoom.hasEnemy) {
+            clearScreen();
+            showHUD(p, dg);
+            cout << RED << "\n  ☠  Musuh menyerang!\n" << RESET;
+            pressEnter();
+
+            bool survived = runCombat(p, enemyQueues[p.currentRoom]);
+            if (!survived) {
+                if (p.hp <= 0) return false; 
+                int prevRoom, prevFloor;
+                if (p.moveHistory.pop(prevRoom, prevFloor)) {
+                    cout << YELLOW << "\n  Kamu kabur kembali ke ruangan sebelumnya!\n" << RESET;
+                    p.currentRoom = prevRoom;
+                    pressEnter();
+                    continue;
+                }
+            }
+            if (enemyQueues[p.currentRoom].isEmpty())
+                curRoom.hasEnemy = false;
+        }
+
+        curRoom.visited = true;
+
+        clearScreen();
+        showHUD(p, dg);
+        dg.displayMap(p.currentRoom);
+        vector<Edge> exits = dg.getExits(p.currentRoom);
+        showRoom(curRoom, exits);
+
+        cout << "\n  > ";
+        string cmd; getline(cin, cmd);
+        cmd = toLower(cmd);
+
+       bool isMove = false;
+        
+        string targetDir = "";
+        if (cmd == "w") targetDir = "atas";
+        else if (cmd == "s") targetDir = "bawah";
+        else if (cmd == "d") targetDir = "kanan";
+        else if (cmd == "a") targetDir = "kiri";
+
+        if (targetDir != "") {
+            int toRoom; bool locked;
+            if (dg.hasEdge(p.currentRoom, targetDir, toRoom, locked)) {
+                if (locked && !p.hasKey) {
+                    cout << RED << "\n  Pintu ini terkunci! Kamu butuh kunci.\n" << RESET;
+                    pressEnter();
+                } else {
+                    if (locked && p.hasKey) {
+                        cout << YELLOW << "\n  Kamu menggunakan kunci untuk membuka pintu.\n" << RESET;
+                        p.hasKey = false;
+                        pressEnter();
+                    }
+                    p.moveHistory.push(p.currentRoom, floor);
+                    p.currentRoom = toRoom;
+                    p.steps++;
+                    p.score += 5;
+                }
+            } else {
+                cout << RED << "\n  Tidak ada jalan ke arah tersebut!\n" << RESET;
+                pressEnter();
+            }
+            continue;
+        }
+
+        if (cmd == "undo") {
+            int prevRoom, prevFloor;
+            if (p.moveHistory.pop(prevRoom, prevFloor)) {
+                p.currentRoom = prevRoom;
+                p.steps++;
+                p.score = max(0, p.score - 3);
+                cout << MAGENTA << "\n  Undo! Kembali ke ruangan sebelumnya.\n" << RESET;
+                pressEnter();
+            } else {
+                cout << YELLOW << "\n  Tidak ada riwayat langkah untuk di-undo!\n" << RESET;
+                pressEnter();
+            }
+        } else if (cmd == "ambil") {
+            if (curRoom.hasItem && !curRoom.roomItem.name.empty()) {
+                Item it = curRoom.roomItem;
+                if (it.type == "key") {
+                    p.hasKey = true;
+                    cout << YELLOW << "\n  Kamu mengambil " << it.name << "!\n" << RESET;
+                } else {
+                    p.inventory.addItem(it);
+                    cout << GREEN << "\n  " << it.name << " ditambahkan ke inventory!\n" << RESET;
+                }
+                curRoom.hasItem = false;
+                curRoom.roomItem.name = "";
+                p.score += 15;
+                pressEnter();
+            } else {
+                cout << YELLOW << "\n  Tidak ada item di ruangan ini.\n" << RESET;
+                pressEnter();
+            }
+
+        } else if (cmd == "inventory" || cmd == "inv") {
+            manageInventory(p);
+        } else if (cmd == "skill" || cmd == "skills") {
+            manageSkillTree(p, st);
+        } else if (cmd == "status") {
+            showStatus(p);
+        } else if (cmd == "peta" || cmd == "map") {
+            clearScreen();
+            showHUD(p, dg);
+            dg.displayMap(p.currentRoom);
+            cout << "\n  Ruangan yang sudah dikunjungi:\n";
+            for (int i = 0; i < dg.roomCount; i++) {
+                if (dg.rooms[i].visited) {
+                    cout << "  " << DIM << "[" << i << "] " << RESET << dg.rooms[i].name;
+                    if (i == p.currentRoom) cout << YELLOW << "  ← KAMU DI SINI" << RESET;
+                    cout << "\n";
+                }
+            }
+            cout << "\n  Riwayat langkah (Stack):\n";
+            p.moveHistory.display();
+            pressEnter();
+        } else if (cmd == "bantuan" || cmd == "help") {
+            showHelp();
+        } else if (cmd == "keluar" || cmd == "exit") {
+            cout << YELLOW << "\n  Kembali ke menu utama? (y/n): " << RESET;
+            string confirm; getline(cin, confirm);
+            if (confirm == "y") return false;
+        } else {
+            cout << DIM << "\n  Perintah tidak dikenal. Ketik 'bantuan' untuk daftar perintah.\n" << RESET;
+            pressEnter();
+        }
+
+        if (dg.rooms[p.currentRoom].isExit) {
+            clearScreen();
+            showHUD(p, dg);
+            if (floor < MAX_FLOORS) {
+                cout << GREEN << BOLD << "\n  ✦ Kamu menemukan tangga menuju lantai berikutnya!\n" << RESET;
+                cout << "\n  Lanjutkan ke Lantai " << floor+1 << "? (y/n): ";
+                string c; getline(cin, c);
+                if (toLower(c) == "y") {
+                    p.score += 100;
+                    floorDone = true;
+                }
+            } else {
+                floorDone = true;
+                return true; 
+            }
+        }
+
+        if (p.hp <= 0) return false;
+    }
+    return true; 
+}
+
+    srand((unsigned)time(nullptr));
+
+    Player p;
+    clearScreen();
+    printBox("DUNGEON ESCAPE — NEW GAME", GREEN);
+    cout << "\n  Masukkan nama karaktermu: ";
+    getline(cin, p.name);
+    if (p.name.empty()) p.name = "Petualang";
+
+    cout << GREEN << "\n  Selamat datang, " << p.name << "!\n" << RESET;
+    cout << DIM << "  Temukan jalan keluar dari 3 lantai penjara bawah tanah ini.\n" << RESET;
+    pressEnter();
+
+    DungeonGraph dg;
+    SkillTree    st;
+    bool         won = false;
+
+    for (int floor = 1; floor <= MAX_FLOORS; floor++) {
+        clearScreen();
+        printBox("LANTAI " + to_string(floor) + " dari 3", YELLOW);
+        pressEnter();
+
+        bool result = playFloor(p, dg, st, floor);
+
+        if (p.hp <= 0) {
+            while (true) {
+                showGameOver(p);
+                string c; getline(cin, c);
+                c = toLower(c);
+                if (c == "r") { gameLoop(); return; }
+                if (c == "q") return;
+            }
+        }
+
+        if (!result) return; 
+
+        if (floor == MAX_FLOORS) { won = true; break; }
+    }
+
+    if (won) {
+        while (true) {
+            showVictory(p);
+            string c; getline(cin, c);
+            c = toLower(c);
+            if (c == "r") { gameLoop(); return; }
+            if (c == "q") return;
+        }
+    }
+}
+
+int main() {
+    system("chcp 65001");
+    enableANSI();
+    srand((unsigned)time(nullptr));
+
+    while (true) {
+        showMainMenu();
+        string choice; getline(cin, choice);
+
+        if (choice == "1") {
+            gameLoop();
+        } else if (choice == "2") {
+            showHowToPlay();
+        } else if (choice == "3") {
+            showAboutDS();
+        } else if (choice == "4") {
+            clearScreen();
+            cout << DIM << "\n  Sampai jumpa di penjara bawah tanah berikutnya...\n\n" << RESET;
+            break;
+        } else {
+            cout << RED << "\n  Pilihan tidak valid!\n" << RESET;
+        }
+    }
+    return 0;
+}

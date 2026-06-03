@@ -1,3 +1,11 @@
+/*
+Anggota :
+Rafi Abdul Hikam - 140810250064
+Raffa Pasha Hidayat - 140810250043
+
+Game Dungeon Escape
+*/
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -404,7 +412,7 @@ public:
             string color;
             if (i == currentRoom) {
                 sym = '@'; color = BOLD + string(YELLOW);
-            } else if (r.isExit) {
+            } else if (r.isExit) { 
                 sym = 'E'; color = GREEN;
             } else if (!r.visited) {
                 sym = '?'; color = DIM;
@@ -458,7 +466,7 @@ inline void clearScreen() {
 #ifdef _WIN32
     system("cls");
 #else
-    system("clear");
+    system("cls");
 #endif
 }
 
@@ -626,7 +634,7 @@ void showGameOver(const Player& p) {
     clearScreen();
     cout << "\n\n";
     cout << RED << BOLD;
-    cout << "  ██████╗  █████╗ ███╗   ███╗███████╗     ██████╗ ██╗   ██╗███████╗██████╗ \n";
+    cout << "  ██████╗   █████╗ ███╗   ███╗███████╗     ██████╗ ██╗   ██╗███████╗██████╗ \n";
     cout << "  ██╔════╝ ██╔══██╗████╗ ████║██╔════╝    ██╔═══██╗██║   ██║██╔════╝██╔══██╗\n";
     cout << "  ██║  ███╗███████║██╔████╔██║█████╗      ██║   ██║██║   ██║█████╗  ██████╔╝\n";
     cout << "  ██║   ██║██╔══██║██║╚██╔╝██║██╔══╝      ██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗\n";
@@ -1196,6 +1204,7 @@ bool playFloor(Player& p, DungeonGraph& dg, SkillTree& st, int floor) {
     return true; 
 }
 
+void gameLoop() {
     srand((unsigned)time(nullptr));
 
     Player p;
